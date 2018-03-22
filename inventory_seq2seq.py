@@ -13,7 +13,6 @@ from pandas import read_csv
 from pandas import datetime
 from sklearn.preprocessing import MinMaxScaler
 
-
 x = np.linspace(0, 30, 105)
 train_data_x = x[:85]
 
@@ -29,6 +28,7 @@ def difference(dataset, interval=1):
         value = dataset[i] - dataset[i - interval]
         diff.append(value)
     return Series(diff)
+
 
 def series_to_supervised(data, n_in=1, n_out=1, dropnan=True):
     n_vars = 1 if type(data) is list else data.shape[1]
@@ -81,7 +81,7 @@ input_seq_len = 15
 # length of output signals
 output_seq_len = 20
 
-n_test =15
+n_test = 15
 
 scaler, train, test = prepare_data(series, n_test, input_seq_len, output_seq_len)
 # size of LSTM Cell
@@ -101,6 +101,7 @@ KEEP_RATE = 0.5
 train_losses = []
 val_losses = []
 
+
 def true_signal(x):
     y = 2 * np.sin(x)
     return y
@@ -113,7 +114,9 @@ def noise_func(x, noise_factor=1):
 def generate_y_values(x):
     return true_signal(x) + noise_func(x)
 
+
 train_X, train_y = train[:, 0:input_seq_len], train[:, input_seq_len:]
+
 
 def generate_train_samples(x=train_X, batch_size=10, input_seq_len=input_seq_len, output_seq_len=output_seq_len):
     total_start_points = len(x) - input_seq_len - output_seq_len
@@ -165,8 +168,13 @@ with tf.Session() as sess:
 print("Checkpoint saved at: ", save_path)
 
 # test_seq_input = true_signal(train_data_x[-15:])
+raw_values = series.values
+# transform data to be stationary
+diff_series = difference(raw_values, 1)
+diff_values = diff_series.values
 
-test_X, test_y = test[:, 0:input_seq_len], test[:, input_seq_len:]
+test_seq_input = diff_values[-15:]
+# test_X, test_y = test[:, 0:input_seq_len], test[:, input_seq_len:]
 
 rnn_model = build_graph(feed_previous=True)
 
@@ -176,15 +184,78 @@ with tf.Session() as sess:
 
     saver = rnn_model['saver']().restore(sess, os.path.join('./', 'univariate_ts_model0'))
 
-    feed_dict = {rnn_model['enc_inp'][t]: test_X[t].reshape(1, 1) for t in range(input_seq_len)}
+    feed_dict = {rnn_model['enc_inp'][t]: test_seq_input[t].reshape(1, 1) for t in range(input_seq_len)}
     feed_dict.update({rnn_model['target_seq'][t]: np.zeros([1, output_dim]) for t in range(output_seq_len)})
     final_preds = sess.run(rnn_model['reshaped_outputs'], feed_dict)
 
     final_preds = np.concatenate(final_preds, axis=1)
 
-# l1, = plt.plot(range(85), true_signal(train_data_x[:85]), label = 'Training truth')
-l1, = plt.plot(train_X, label = 'Training truth')
-l2, = plt.plot(train_y, 'yo', label = 'Test truth')
-l3, = plt.plot(range(85, 105), final_preds.reshape(-1), 'ro', label = 'Test predictions')
-plt.legend(handles = [l1, l2, l3], loc = 'lower left')
+last_observe = raw_values[-1:]
+
+
+def inverse_transform(series, forecasts, scaler, n_test):
+    inverted = list()
+    for i in range(len(forecasts)):
+        # create array from forecast
+        # forecast = array(forecasts[i])
+        forecast = forecasts[i].asnumpy();
+        forecast = forecast.reshape(1, len(forecast))
+        # invert scaling
+        inv_scale = scaler.inverse_transform(forecast)
+        inv_scale = inv_scale[0, :]
+        # invert differencing
+        index = len(series) - n_test + i - 1
+        last_ob = series.values[index]
+        inv_diff = inverse_difference(last_ob, inv_scale)
+        # store
+        inverted.append(inv_diff)
+    return inverted
+
+
+def inverse_difference(last_ob, forecast):
+    # invert first forecast
+    inverted = list()
+    inverted.append(forecast[0] + last_ob)
+    # propagate difference forecast using inverted first value
+    for i in range(1, len(forecast)):
+        inverted.append(forecast[i] + inverted[i - 1])
+    return inverted
+
+
+# inverted_original = inverse_difference(last_observe, final_preds[0])
+# inverted = list()
+
+inv_scale = scaler.inverse_transform(final_preds)
+inv_scale = inv_scale[0, :]
+inverted = inverse_difference(last_observe, inv_scale)
+
+plt.plot(raw_values)
+plt.plot(inverted)
 plt.show()
+for i in range(len(inverted)):
+    print(inverted[i])
+
+# for i in range(len(final_preds[0])):
+#     # create array from forecast
+#     # forecast = array(forecasts[i])
+#     forecast = final_preds[0][i].asnumpy();
+#     forecast = forecast.reshape(1, len(forecast))
+#     # invert scaling
+#     inv_scale = scaler.inverse_transform(forecast)
+#     inv_scale = inv_scale[0, :]
+#     # invert differencing
+#     # index = len(series) - n_test + i - 1
+#     # last_ob = series.values[index]
+#     inv_diff = inverse_difference(last_observe, inv_scale)
+#     # store
+#     inverted.append(inv_diff)
+#
+# for i in range(len(inverted_original)):
+#     print (inverted_original[i])
+
+# # l1, = plt.plot(range(85), true_signal(train_data_x[:85]), label = 'Training truth')
+# l1, = plt.plot(train_X, label = 'Training truth')
+# l2, = plt.plot(train_y, 'yo', label = 'Test truth')
+# l3, = plt.plot(range(85, 105), final_preds.reshape(-1), 'ro', label = 'Test predictions')
+# plt.legend(handles = [l1, l2, l3], loc = 'lower left')
+# plt.show()

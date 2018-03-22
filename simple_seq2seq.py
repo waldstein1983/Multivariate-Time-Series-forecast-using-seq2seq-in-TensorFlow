@@ -91,7 +91,9 @@ with tf.Session() as sess:
 
 print("Checkpoint saved at: ", save_path)
 
+
 test_seq_input = true_signal(train_data_x[-15:])
+# test_seq_input =
 
 rnn_model = build_graph(feed_previous=True)
 
