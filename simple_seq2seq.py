@@ -15,6 +15,8 @@ y = 2 * np.sin(x)
 learning_rate = 0.01
 lambda_l2_reg = 0.003
 
+
+
 ## Network Parameters
 # length of input signals
 input_seq_len = 15
